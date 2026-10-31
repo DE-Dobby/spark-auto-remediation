@@ -1,0 +1,19 @@
+# 비밀값
+.env
+
+# 클러스터·데이터·내려받은 jar (호스트 로컬)
+.data/
+
+# 파이썬
+.venv/
+__pycache__/
+*.pyc
+
+# 작업 지시서 (로컬 전용)
+CLAUDE.md
+
+# 로컬 도구 설정
+.claude/settings.local.json
+
+# macOS
+.DS_Store

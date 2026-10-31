@@ -1,0 +1,36 @@
+# 버킷 생성 Job. mc 이미지는 distroless 라 셸이 없어 mc 를 직접 실행하고
+# 알리아스는 MC_HOST_<alias> 환경변수로 넘긴다 ($(VAR) 는 kubelet 이 치환).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-buckets
+  namespace: storage
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: mc
+          image: cgr.dev/chainguard/minio-client@sha256:4c288033f700b35846037c53ce39ba287f4bed0a571518c1f4d8d2788beb5cb5
+          command: ["/usr/bin/mc"]
+          args: ["mb", "--ignore-existing", "local/warehouse", "local/landing", "local/spark-events"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}
+            - name: MC_HOST_local
+              value: "http://$(MINIO_ROOT_USER):$(MINIO_ROOT_PASSWORD)@minio.storage.svc.cluster.local:9000"
+            - name: MC_CONFIG_DIR
+              value: /tmp/mc
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}

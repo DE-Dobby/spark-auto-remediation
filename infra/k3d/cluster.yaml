@@ -1,0 +1,48 @@
+# k3d v5.9.0 / apiVersion k3d.io/v1alpha5
+# 호스트 ./.data 마운트는 Makefile이 -v 플래그로 붙인다 (설정파일에 절대경로를 박지 않기 위해).
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: spark-ar
+servers: 1
+agents: 2
+image: docker.io/rancher/k3s:v1.34.12-k3s1
+kubeAPI:
+  hostPort: "6550"
+ports:
+  - port: 9000:30900   # MinIO S3 API
+    nodeFilters:
+      - loadbalancer
+  - port: 9001:30901   # MinIO console
+    nodeFilters:
+      - loadbalancer
+  - port: 15432:30543  # Postgres (호스트 5432는 기존 vet-postgres가 사용 중)
+    nodeFilters:
+      - loadbalancer
+  - port: 18080:30818  # Spark History Server
+    nodeFilters:
+      - loadbalancer
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+  k3s:
+    extraArgs:
+      # Spark 잡은 agent에서만 돌린다.
+      - arg: --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule
+        nodeFilters:
+          - server:*
+      # 메모리 절약: 쓰지 않는 기본 애드온 제거
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      - arg: --disable=metrics-server
+        nodeFilters:
+          - server:*
+    nodeLabels:
+      # agent-0 = 상태 저장 서비스 (MinIO / Postgres / History Server)
+      - label: role=storage
+        nodeFilters:
+          - agent:0
+  runtime:
+    agentsMemory: 3500m

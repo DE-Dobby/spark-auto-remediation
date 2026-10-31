@@ -1,0 +1,57 @@
+# 잡별 설정. `defaults` 를 `jobs.<name>` 이 덮어쓴다.
+# 제출할 때 --set 으로 한 번 더 덮어쓸 수 있다 (= 사람이 재작업을 돌릴 때 쓰는 자리).
+
+image: spark-ar:4.1.4-iceberg1.12.0
+
+# 모든 잡에 들어가는 공통 설정.
+common_conf:
+  # Iceberg JDBC 카탈로그 (Postgres) + MinIO (S3FileIO)
+  spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+  spark.sql.catalog.lake: org.apache.iceberg.spark.SparkCatalog
+  spark.sql.catalog.lake.type: jdbc
+  spark.sql.catalog.lake.uri: jdbc:postgresql://postgres.storage.svc.cluster.local:5432/catalog
+  spark.sql.catalog.lake.warehouse: s3://warehouse/
+  spark.sql.catalog.lake.io-impl: org.apache.iceberg.aws.s3.S3FileIO
+  spark.sql.catalog.lake.s3.endpoint: http://minio.storage.svc.cluster.local:9000
+  spark.sql.catalog.lake.s3.path-style-access: "true"
+  spark.sql.catalog.lake.client.region: us-east-1
+  spark.sql.defaultCatalog: lake
+  # event log (s3a). AWS SDK bundle 은 hostPath 로 붙인다.
+  spark.eventLog.enabled: "true"
+  spark.eventLog.dir: s3a://spark-events/
+  spark.hadoop.fs.s3a.endpoint: http://minio.storage.svc.cluster.local:9000
+  spark.hadoop.fs.s3a.endpoint.region: us-east-1
+  spark.hadoop.fs.s3a.path.style.access: "true"
+  spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
+  spark.driver.extraClassPath: /opt/extra-jars/bundle-2.29.52.jar
+  spark.executor.extraClassPath: /opt/extra-jars/bundle-2.29.52.jar
+  # 실패 원인 구분용 지표 (JVM RSS 와 Python RSS 를 따로 기록한다)
+  spark.executor.processTreeMetrics.enabled: "true"
+  spark.executor.metrics.pollingInterval: "1000"      # ms
+  spark.eventLog.logStageExecutorMetrics: "true"
+  # 죽은 executor Pod 보존 — OOMKilled 는 Pod status 에만 남고 event log 에는 없다
+  spark.kubernetes.executor.deleteOnTermination: "false"
+  # 읽기 stage 의 태스크 수가 분류 신호라서 입력 병렬도를 확보한다 (기본 128m)
+  spark.sql.files.maxPartitionBytes: 16m
+
+defaults:
+  driver:
+    cores: 1
+    memory: 1g
+  executor:
+    instances: 2
+    cores: 1
+    memory: 1g
+
+jobs:
+  udf_oom_killed:
+    main: udf_oom_killed.py
+    executor:
+      memoryOverhead: 384m
+    conf:
+      # Spark 4.1 은 바이트 상한이 실제 배치 크기를 결정한다.
+      # maxRecordsPerBatch 만 올려도 배치가 커지지 않으므로 둘 다 올려야 재현된다.
+      spark.sql.execution.arrow.maxRecordsPerBatch: "200000"   # 기본 10000
+      spark.sql.execution.arrow.maxBytesPerBatch: 1g           # 실측 기본 약 64MiB
+    expect:
+      state: FAILED

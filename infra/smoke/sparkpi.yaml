@@ -1,0 +1,57 @@
+# Phase 1 완료 조건용 스모크: SparkPi 성공 → s3a://spark-events/ 에 event log → History Server REST 조회
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: spark-pi-smoke
+  namespace: spark
+spec:
+  type: Scala
+  mode: cluster
+  image: apache/spark:4.1.4-scala2.13-java17-python3-ubuntu
+  imagePullPolicy: IfNotPresent
+  mainClass: org.apache.spark.examples.SparkPi
+  mainApplicationFile: "local:///opt/spark/examples/jars/spark-examples.jar"
+  arguments: ["200"]
+  sparkVersion: 4.1.4
+  restartPolicy:
+    type: Never
+  sparkConf:
+    spark.eventLog.enabled: "true"
+    spark.eventLog.dir: "s3a://spark-events/"
+    spark.hadoop.fs.s3a.endpoint: "http://minio.storage.svc.cluster.local:9000"
+    spark.hadoop.fs.s3a.endpoint.region: "us-east-1"
+    spark.hadoop.fs.s3a.path.style.access: "true"
+    spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
+    spark.driver.extraClassPath: "/opt/extra-jars/hadoop-aws-3.4.2.jar:/opt/extra-jars/bundle-2.29.52.jar"
+    spark.executor.extraClassPath: "/opt/extra-jars/hadoop-aws-3.4.2.jar:/opt/extra-jars/bundle-2.29.52.jar"
+  volumes:
+    - name: extra-jars
+      hostPath:
+        path: /var/lib/rancher/k3s/storage/jars
+        type: Directory
+  driver:
+    cores: 1
+    memory: 512m
+    serviceAccount: spark
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}
+    volumeMounts:
+      - {name: extra-jars, mountPath: /opt/extra-jars, readOnly: true}
+  executor:
+    instances: 2
+    cores: 1
+    memory: 512m
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}
+    volumeMounts:
+      - {name: extra-jars, mountPath: /opt/extra-jars, readOnly: true}

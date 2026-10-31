@@ -1,0 +1,28 @@
+# kubeflow spark-operator chart 2.5.2
+# 재시도는 이 프로젝트의 remediator 가 담당하므로 operator 쪽 재시작은 쓰지 않는다.
+spark:
+  jobNamespaces:
+    - spark
+  serviceAccount:
+    # 우리가 infra/manifests/30-spark-rbac.yaml 로 직접 만든 SA 를 쓴다.
+    create: false
+    name: spark
+  rbac:
+    create: false
+
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+webhook:
+  enable: true
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+prometheus:
+  metrics:
+    enable: false

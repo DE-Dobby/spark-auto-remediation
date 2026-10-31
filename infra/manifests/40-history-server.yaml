@@ -1,0 +1,74 @@
+# Spark History Server. Spark 이미지를 그대로 쓰고 s3a 용 jar 2개만 hostPath 로 붙인다.
+# (apache/spark 이미지에는 hadoop-aws / AWS SDK 가 없다. Phase 2 에서 이미지에 넣을지 재검토)
+# jar 는 호스트 ./.data/jars → 모든 노드의 /var/lib/rancher/k3s/storage/jars 에 보인다.
+# 자격증명은 -D 인자로 넘기면 프로세스 목록에 노출되므로 AWS_* 환경변수(S3A 기본 provider chain)로 준다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history-server
+  namespace: spark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-history-server
+  template:
+    metadata:
+      labels:
+        app: spark-history-server
+    spec:
+      nodeSelector:
+        role: storage
+      containers:
+        - name: history
+          image: apache/spark:4.1.4-scala2.13-java17-python3-ubuntu
+          command: ["/opt/spark/bin/spark-class"]
+          args: ["org.apache.spark.deploy.history.HistoryServer"]
+          env:
+            - name: SPARK_DIST_CLASSPATH
+              value: "/opt/extra-jars/*"
+            - name: SPARK_DAEMON_MEMORY
+              value: "512m"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}
+            - name: SPARK_HISTORY_OPTS
+              value: >-
+                -Dspark.history.fs.logDirectory=s3a://spark-events/
+                -Dspark.history.fs.update.interval=10s
+                -Dspark.history.ui.port=18080
+                -Dspark.hadoop.fs.s3a.endpoint=http://minio.storage.svc.cluster.local:9000
+                -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
+                -Dspark.hadoop.fs.s3a.path.style.access=true
+                -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false
+          ports:
+            - {containerPort: 18080, name: http}
+          readinessProbe:
+            httpGet: {path: /api/v1/applications, port: 18080}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: extra-jars, mountPath: /opt/extra-jars, readOnly: true}
+      volumes:
+        - name: extra-jars
+          hostPath:
+            path: /var/lib/rancher/k3s/storage/jars
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history-server
+  namespace: spark
+spec:
+  type: NodePort
+  selector:
+    app: spark-history-server
+  ports:
+    - {name: http, port: 18080, targetPort: 18080, nodePort: 30818}
