@@ -1,0 +1,28 @@
+# kubeflow spark-operator chart 2.5.2
+# Retries belong to this project's remediator, so the operator's restart is not used.
+spark:
+  jobNamespaces:
+    - spark
+  serviceAccount:
+    # Use the service account created by infra/manifests/30-spark-rbac.yaml.
+    create: false
+    name: spark
+  rbac:
+    create: false
+
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+webhook:
+  enable: true
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+prometheus:
+  metrics:
+    enable: false

@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Cluster state, data and downloaded jars (host-local)
+.data/
+
+# Airflow runtime (host-local: logs and DAG run history)
+.airflow/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Working instructions (local only)
+CLAUDE.md
+
+# Local tool settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store

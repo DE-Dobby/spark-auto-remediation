@@ -1,0 +1,103 @@
+# Settings for the failure-reproduction jobs; a test tool. `jobs.<name>` overrides
+# `defaults`, and --set overrides both at submit time.
+#
+# The collector and classifier never read this file. They take the configuration from
+# the failed SparkApplication CR, so a job that is not listed here is handled the same
+# way.
+
+image: spark-ar:4.1.4
+
+# Applied to every job.
+common_conf:
+  # Event log over s3a. The AWS SDK bundle is mounted by hostPath.
+  spark.eventLog.enabled: "true"
+  spark.eventLog.dir: s3a://spark-events/
+  spark.hadoop.fs.s3a.endpoint: http://minio.storage.svc.cluster.local:9000
+  spark.hadoop.fs.s3a.endpoint.region: us-east-1
+  spark.hadoop.fs.s3a.path.style.access: "true"
+  spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
+  spark.driver.extraClassPath: /opt/extra-jars/bundle-2.29.52.jar
+  spark.executor.extraClassPath: /opt/extra-jars/bundle-2.29.52.jar
+  # Metrics that separate the causes: JVM RSS and Python RSS are recorded apart
+  spark.executor.processTreeMetrics.enabled: "true"
+  spark.executor.metrics.pollingInterval: "1000"      # ms
+  spark.eventLog.logStageExecutorMetrics: "true"
+  # Keep dead executor pods: OOMKilled appears only in pod status, never the event log
+  spark.kubernetes.executor.deleteOnTermination: "false"
+  # The read stage's task count is a classification signal, so keep input parallelism
+  # (the default is 128m)
+  spark.sql.files.maxPartitionBytes: 16m
+
+defaults:
+  driver:
+    cores: 1
+    memory: 1g
+  executor:
+    instances: 2
+    cores: 1
+    memory: 1g
+
+jobs:
+  udf_oom_killed:
+    main: udf_oom_killed.py
+    executor:
+      memoryOverhead: 384m
+    conf:
+      # In Spark 4.1 the byte cap decides the real batch size, so raising
+      # maxRecordsPerBatch alone does not grow the batch. Both are needed.
+      spark.sql.execution.arrow.maxRecordsPerBatch: "200000"   # default 10000
+      spark.sql.execution.arrow.maxBytesPerBatch: 1g           # default is about 64MiB
+    expect:
+      state: FAILED
+
+  jdbc_single_partition:
+    main: jdbc_single_partition.py
+    env:
+      # This job declares the split-read knob: its code reads this variable. The lever
+      # is not applied to jobs that do not declare it, because setting it there would
+      # do nothing (rule condition env_set:JDBC_NUM_PARTITIONS).
+      JDBC_NUM_PARTITIONS: "1"
+    expect:
+      state: FAILED
+
+  skew_agg:
+    main: skew_agg.py
+    executor:
+      cores: 2
+      memory: 640m
+    conf:
+      spark.sql.shuffle.partitions: "8"
+    expect:
+      state: FAILED
+
+  ansi_error:
+    main: ansi_error.py
+    expect:
+      state: FAILED
+
+  udf_pyspark_memory:
+    main: udf_pyspark_memory.py
+    # Container total = memory + memoryOverhead + pyspark.memory.
+    # The JVM side gets room so pyspark.memory is the limit that binds first, and the
+    # whole thing stays small enough to schedule on a 3.5GiB node even at pyspark 1g.
+    executor:
+      instances: 1
+      memory: 640m
+      memoryOverhead: 640m
+    conf:
+      spark.executor.pyspark.memory: 256m
+      spark.sql.execution.arrow.maxRecordsPerBatch: "200000"
+      spark.sql.execution.arrow.maxBytesPerBatch: 64m
+    expect:
+      state: FAILED
+
+  driver_broadcast:
+    main: driver_broadcast.py
+    driver:
+      memory: 1g
+    conf:
+      # Keep the threshold from overriding the forced broadcast hint
+      spark.sql.autoBroadcastJoinThreshold: "-1"
+      spark.driver.maxResultSize: "0"
+    expect:
+      state: FAILED

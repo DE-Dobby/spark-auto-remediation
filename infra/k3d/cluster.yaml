@@ -1,0 +1,48 @@
+# k3d v5.9.0 / apiVersion k3d.io/v1alpha5
+# The Makefile mounts ./.data with -v so no absolute path is baked into this file.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: spark-ar
+servers: 1
+agents: 2
+image: docker.io/rancher/k3s:v1.34.12-k3s1
+kubeAPI:
+  hostPort: "6550"
+ports:
+  - port: 9000:30900   # MinIO S3 API
+    nodeFilters:
+      - loadbalancer
+  - port: 9001:30901   # MinIO console
+    nodeFilters:
+      - loadbalancer
+  - port: 15432:30543  # Postgres (host 5432 is already in use)
+    nodeFilters:
+      - loadbalancer
+  - port: 18080:30818  # Spark History Server
+    nodeFilters:
+      - loadbalancer
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+  k3s:
+    extraArgs:
+      # Spark jobs run on the agents only.
+      - arg: --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule
+        nodeFilters:
+          - server:*
+      # Save memory by dropping the default add-ons we do not use
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      - arg: --disable=metrics-server
+        nodeFilters:
+          - server:*
+    nodeLabels:
+      # agent-0 holds the stateful services (MinIO, Postgres, History Server)
+      - label: role=storage
+        nodeFilters:
+          - agent:0
+  runtime:
+    agentsMemory: 3500m
